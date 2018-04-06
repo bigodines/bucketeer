@@ -1,20 +1,8 @@
 package middleware
 
-import "github.com/labstack/echo"
-
-type (
-	Config struct {
-		Experiments map[string]Experiment
-	}
-
-	Experiment struct {
-		Pct  float32
-		Name string
-	}
-
-	Bucket struct {
-		Experiment Experiment
-	}
+import (
+	"github.com/bigodines/bucketeer/lib"
+	"github.com/labstack/echo"
 )
 
 const (
@@ -22,14 +10,25 @@ const (
 )
 
 var (
-	DefaultConfig = Config{}
+	DefaultConfig = lib.Config{
+		Experiments: map[string]lib.Experiment{
+			"fontrolirst": lib.Experiment{
+				Weight: 1.0,
+				Name:   "Control group",
+			},
+		},
+		Parser: DefaultParser,
+	}
+
+	conf lib.Config
 )
 
 func Bucketize() echo.MiddlewareFunc {
 	return BucketizeWithConfig(DefaultConfig)
 }
 
-func BucketizeWithConfig(c Config) echo.MiddlewareFunc {
+func BucketizeWithConfig(c lib.Config) echo.MiddlewareFunc {
+
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		handler := func(c echo.Context) error {
 			req := c.Request()
@@ -37,7 +36,15 @@ func BucketizeWithConfig(c Config) echo.MiddlewareFunc {
 
 			id := req.Header.Get(HeaderBucketeer)
 			if id != "" {
+				// don't change the headers.
 				res.Header().Set(HeaderBucketeer, id)
+
+				b, err := conf.Parser(id)
+				if err != nil {
+					return err
+				}
+				// Add bucket to the context
+				c.Set("bucket", b)
 			}
 
 			return next(c)
@@ -45,4 +52,13 @@ func BucketizeWithConfig(c Config) echo.MiddlewareFunc {
 
 		return handler
 	}
+}
+
+// Default parser
+func DefaultParser(bid string) (lib.Bucket, error) {
+	b := lib.Bucket{
+		Experiment: conf.Experiments["control"],
+	}
+
+	return b, nil
 }
